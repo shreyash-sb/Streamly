@@ -1,98 +1,100 @@
-import axios from "axios";
-import httpStatus from "http-status";
-import { createContext, useContext, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import server from "../environment";
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import api from '../services/api';
 
-
-export const AuthContext = createContext({});
-
-const client = axios.create({
-    baseURL: `${server}/api/v1/users`
-})
-
+export const AuthContext = createContext({
+  user: null,
+  isAuthenticated: false,
+  loading: true,
+  login: async () => {},
+  register: async () => {},
+  logout: async () => {},
+  updateProfile: async () => {},
+  setGuestName: () => {},
+  guestName: '',
+});
 
 export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [guestName, setGuestNameState] = useState(() => localStorage.getItem('streamly_guest_name') || '');
 
-    const authContext = useContext(AuthContext);
+  const setGuestName = (name) => {
+    setGuestNameState(name);
+    if (name) {
+      localStorage.setItem('streamly_guest_name', name);
+    } else {
+      localStorage.removeItem('streamly_guest_name');
+    }
+  };
 
-
-    const [userData, setUserData] = useState(authContext);
-
-
-    const router = useNavigate();
-
-    const handleRegister = async (name, username, password) => {
-        try {
-            let request = await client.post("/register", {
-                name: name,
-                username: username,
-                password: password
-            })
-
-
-            if (request.status === httpStatus.CREATED) {
-                return request.data.message;
-            }
-        } catch (err) {
-            throw err;
-        }
+  const fetchCurrentUser = useCallback(async () => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      setLoading(false);
+      return;
     }
 
-    const handleLogin = async (username, password) => {
-        try {
-            let request = await client.post("/login", {
-                username: username,
-                password: password
-            });
-
-            console.log(username, password)
-            console.log(request.data)
-
-            if (request.status === httpStatus.OK) {
-                localStorage.setItem("token", request.data.token);
-                router("/home")
-            }
-        } catch (err) {
-            throw err;
-        }
+    try {
+      const { data } = await api.get('/auth/me');
+      setUser(data.user);
+    } catch (err) {
+      console.warn('Session expired or DB unavailable, clearing token.');
+      localStorage.removeItem('accessToken');
+      setUser(null);
+    } finally {
+      setLoading(false);
     }
+  }, []);
 
-    const getHistoryOfUser = async () => {
-        try {
-            let request = await client.get("/get_all_activity", {
-                params: {
-                    token: localStorage.getItem("token")
-                }
-            });
-            return request.data
-        } catch
-         (err) {
-            throw err;
-        }
-    }
+  useEffect(() => {
+    fetchCurrentUser();
+  }, [fetchCurrentUser]);
 
-    const addToUserHistory = async (meetingCode) => {
-        try {
-            let request = await client.post("/add_to_activity", {
-                token: localStorage.getItem("token"),
-                meeting_code: meetingCode
-            });
-            return request
-        } catch (e) {
-            throw e;
-        }
-    }
+  const login = async (username, password) => {
+    const { data } = await api.post('/auth/login', { username, password });
+    localStorage.setItem('accessToken', data.token);
+    setUser(data.user);
+    return data;
+  };
 
+  const register = async (name, username, password, email) => {
+    const { data } = await api.post('/auth/register', { name, username, password, email });
+    localStorage.setItem('accessToken', data.token);
+    setUser(data.user);
+    return data;
+  };
 
-    const data = {
-        userData, setUserData, addToUserHistory, getHistoryOfUser, handleRegister, handleLogin
-    }
+  const logout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (e) {}
+    localStorage.removeItem('accessToken');
+    setUser(null);
+  };
 
-    return (
-        <AuthContext.Provider value={data}>
-            {children}
-        </AuthContext.Provider>
-    )
+  const updateProfile = async (profileData) => {
+    const { data } = await api.put('/auth/profile', profileData);
+    setUser(data.user);
+    return data;
+  };
 
-}
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        isAuthenticated: !!user,
+        loading,
+        login,
+        register,
+        logout,
+        updateProfile,
+        guestName,
+        setGuestName,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => useContext(AuthContext);

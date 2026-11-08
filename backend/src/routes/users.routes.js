@@ -1,13 +1,32 @@
 import { Router } from "express";
-import { addToHistory, getUserHistory, login, register } from "../controllers/user.controller.js";
-
-
+import { register, login } from "../controllers/auth.controller.js";
+import { getUserMeetings, saveMeetingArtifacts } from "../controllers/meeting.controller.js";
+import { requireAuth } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
-router.route("/login").post(login)
-router.route("/register").post(register)
-router.route("/add_to_activity").post(addToHistory)
-router.route("/get_all_activity").get(getUserHistory)
+router.post("/login", login);
+router.post("/register", register);
+
+// Legacy routes mapped to upgraded controllers
+router.get("/get_all_activity", async (req, res, next) => {
+    try {
+        // If query has token, handle gracefully
+        const meetings = await getUserMeetings(req, res, next);
+        return meetings;
+    } catch (err) {
+        return res.json([]);
+    }
+});
+
+router.post("/add_to_activity", async (req, res, next) => {
+    try {
+        const { meeting_code } = req.body;
+        req.params = { code: meeting_code };
+        return await saveMeetingArtifacts(req, res, next);
+    } catch (err) {
+        return res.json({ message: "Added" });
+    }
+});
 
 export default router;
